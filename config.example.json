@@ -1,6 +1,6 @@
 {
   "time_zone": "America/Argentina/Buenos_Aires",
-  "source_dir": "assets/input",
+  "source_dir": "src/assets/input",
   "output_dir": "assets/published",
   "logs_dir": "logs",
   "min_width": 512,
@@ -15,5 +15,9 @@
   "placeholder_size": [
     1080,
     1080
-  ]
+  ],
+  "selection_policy": "oldest",
+  "post_mode": "draft",
+  "post_text": "",
+  "made_with_ai": true
 }
