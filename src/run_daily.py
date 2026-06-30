@@ -7,6 +7,7 @@ from typing import Any
 
 from generate_image import get_daily_image
 from learner import propose_learning
+from post_to_x import publish_to_x
 from validate_image import validate_image
 
 
@@ -62,15 +63,23 @@ def main() -> None:
     image_path, source = get_daily_image(config)
     ok, errors, metadata = validate_image(image_path, config, used_hashes_from_log(logs_dir))
 
+    publish_result = None
+    if ok:
+        publish_result = publish_to_x(image_path, config).to_dict()
+        if not publish_result["ok"]:
+            ok = False
+            errors.append(publish_result.get("error") or "publication failed")
+
     event = {
         "date": datetime.now().isoformat(timespec="seconds"),
-        "mode": "draft_only",
+        "mode": config.get("post_mode", "draft"),
         "objective": "produce_one_daily_image_candidate_for_manual_x_posting",
         "source": source,
         "candidate_path": str(image_path),
         "valid": ok,
         "errors": errors,
         "metadata": metadata,
+        "publish_result": publish_result,
         "memory_version": memory.get("version"),
     }
 
