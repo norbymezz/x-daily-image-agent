@@ -1,0 +1,19 @@
+{
+  "time_zone": "America/Argentina/Buenos_Aires",
+  "source_dir": "assets/input",
+  "output_dir": "assets/published",
+  "logs_dir": "logs",
+  "min_width": 512,
+  "min_height": 512,
+  "max_size_mb": 10,
+  "allowed_formats": [
+    "jpg",
+    "jpeg",
+    "png",
+    "webp"
+  ],
+  "placeholder_size": [
+    1080,
+    1080
+  ]
+}
