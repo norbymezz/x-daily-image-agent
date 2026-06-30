@@ -1,16 +1,11 @@
 from __future__ import annotations
 
-import base64
-import mimetypes
 import os
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-import requests
-
-
-API_BASE = "https://api.x.com"
+import tweepy
 
 
 @dataclass
@@ -18,6 +13,7 @@ class PublishResult:
     ok: bool
     mode: str
     image_path: str
+    auth_mode: str | None = None
     media_id: str | None = None
     post_id: str | None = None
     post_url: str | None = None
@@ -28,80 +24,91 @@ class PublishResult:
         return asdict(self)
 
 
-def env_token() -> str | None:
-    return os.getenv("X_BEARER_TOKEN") or os.getenv("X_ACCESS_TOKEN")
+def env(name: str) -> str | None:
+    value = os.getenv(name)
+    return value if value else None
 
 
-def infer_media_type(image_path: Path) -> str:
-    media_type, _ = mimetypes.guess_type(str(image_path))
-    return media_type or "image/png"
+def oauth1_credentials_present() -> bool:
+    required = [
+        "X_API_KEY",
+        "X_API_SECRET",
+        "X_ACCESS_TOKEN",
+        "X_ACCESS_TOKEN_SECRET",
+    ]
+    return all(env(name) for name in required)
 
 
-def upload_media(image_path: Path, token: str) -> str:
-    media_bytes = image_path.read_bytes()
-    payload = {
-        "media": base64.b64encode(media_bytes).decode("ascii"),
-        "media_category": "tweet_image",
-        "media_type": infer_media_type(image_path),
-        "shared": False,
-    }
-    response = requests.post(
-        f"{API_BASE}/2/media/upload",
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-        json=payload,
-        timeout=60,
+def publish_with_oauth1(image_path: Path, text: str) -> PublishResult:
+    """Publish one image using OAuth 1.0a user credentials.
+
+    This is the shortest local Hello World path for a personal bot:
+    API key + API secret + access token + access token secret.
+
+    Tweepy still needs API v1.1 for media upload, then API v2 for create_tweet.
+    The rest of the agent should not care about that platform detail.
+    """
+    api_key = env("X_API_KEY")
+    api_secret = env("X_API_SECRET")
+    access_token = env("X_ACCESS_TOKEN")
+    access_token_secret = env("X_ACCESS_TOKEN_SECRET")
+
+    if not all([api_key, api_secret, access_token, access_token_secret]):
+        return PublishResult(
+            ok=False,
+            mode="live",
+            auth_mode="oauth1",
+            image_path=str(image_path),
+            error="missing one of: X_API_KEY, X_API_SECRET, X_ACCESS_TOKEN, X_ACCESS_TOKEN_SECRET",
+        )
+
+    auth = tweepy.OAuth1UserHandler(api_key, api_secret, access_token, access_token_secret)
+    api_v1 = tweepy.API(auth)
+    client_v2 = tweepy.Client(
+        consumer_key=api_key,
+        consumer_secret=api_secret,
+        access_token=access_token,
+        access_token_secret=access_token_secret,
     )
-    if response.status_code >= 400:
-        raise RuntimeError(f"media upload failed: {response.status_code} {response.text}")
-    data = response.json()
-    media_id = data.get("data", {}).get("id")
-    if not media_id:
-        raise RuntimeError(f"media upload returned no media id: {data}")
-    return media_id
 
+    media = api_v1.media_upload(filename=str(image_path))
+    response = client_v2.create_tweet(text=text, media_ids=[media.media_id])
 
-def create_post(media_id: str, token: str, text: str = "", made_with_ai: bool = True) -> dict[str, Any]:
-    payload: dict[str, Any] = {
-        "text": text,
-        "media": {"media_ids": [media_id]},
-        "made_with_ai": made_with_ai,
-    }
-    response = requests.post(
-        f"{API_BASE}/2/tweets",
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-        json=payload,
-        timeout=60,
+    post_id = None
+    response_data = getattr(response, "data", None)
+    if isinstance(response_data, dict):
+        post_id = response_data.get("id")
+
+    return PublishResult(
+        ok=bool(post_id),
+        mode="live",
+        auth_mode="oauth1",
+        image_path=str(image_path),
+        media_id=str(media.media_id),
+        post_id=str(post_id) if post_id else None,
+        post_url=f"https://x.com/i/web/status/{post_id}" if post_id else None,
+        response={"data": response_data} if response_data is not None else None,
+        error=None if post_id else "tweet created no id returned",
     )
-    if response.status_code >= 400:
-        raise RuntimeError(f"post create failed: {response.status_code} {response.text}")
-    return response.json()
 
 
 def publish_to_x(image_path: Path, config: dict[str, Any]) -> PublishResult:
     mode = os.getenv("POST_MODE", config.get("post_mode", "draft")).lower()
     text = os.getenv("POST_TEXT", config.get("post_text", ""))
-    made_with_ai = bool(config.get("made_with_ai", True))
 
     if mode != "live":
-        return PublishResult(ok=True, mode=mode, image_path=str(image_path))
-
-    token = env_token()
-    if not token:
-        return PublishResult(ok=False, mode=mode, image_path=str(image_path), error="missing X_BEARER_TOKEN or X_ACCESS_TOKEN")
+        return PublishResult(ok=True, mode=mode, image_path=str(image_path), auth_mode="none")
 
     try:
-        media_id = upload_media(image_path, token)
-        response = create_post(media_id, token, text=text, made_with_ai=made_with_ai)
-        post_id = response.get("data", {}).get("id")
-        post_url = f"https://x.com/i/web/status/{post_id}" if post_id else None
+        if oauth1_credentials_present():
+            return publish_with_oauth1(image_path, text=text)
+
         return PublishResult(
-            ok=True,
+            ok=False,
             mode=mode,
             image_path=str(image_path),
-            media_id=media_id,
-            post_id=post_id,
-            post_url=post_url,
-            response=response,
+            auth_mode="missing",
+            error="local live mode needs OAuth 1.0a env vars: X_API_KEY, X_API_SECRET, X_ACCESS_TOKEN, X_ACCESS_TOKEN_SECRET",
         )
     except Exception as exc:
-        return PublishResult(ok=False, mode=mode, image_path=str(image_path), error=str(exc))
+        return PublishResult(ok=False, mode=mode, image_path=str(image_path), auth_mode="oauth1", error=str(exc))
