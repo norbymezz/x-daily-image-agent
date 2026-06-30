@@ -7,8 +7,9 @@ Este repositorio no intenta resolver todavía el framework general del `silent-l
 ```text
 objetivo fijo
 + memoria validada
-+ generación/selección de imagen
++ selección de imagen
 + validación
++ publicación opcional
 + registro
 + learner interno mínimo
 ```
@@ -19,50 +20,63 @@ El agente no inventa objetivos nuevos. Ejecuta siempre el objetivo de `prompt_fi
 
 La memoria no reemplaza al objetivo. Solo guarda experiencia validada o pendiente de revisión.
 
-## Estado del MVP
+## Modo actual
 
-Modo borrador:
-
-1. busca una imagen en `assets/input/`;
-2. si no encuentra, genera un placeholder local;
-3. valida formato, tamaño, dimensiones y duplicado básico;
-4. copia la imagen final a `assets/published/`;
-5. registra la ejecución en `logs/run_log.json`;
-6. genera una observación del learner en `logs/learner_suggestions.json`.
-
-No publica automáticamente.
-
-## Estructura
+Por defecto corre en modo borrador:
 
 ```text
-x-daily-image-agent/
-├── README.md
-├── prompt_fixed.md
-├── memory.json
-├── config.example.json
-├── requirements.txt
-├── .gitignore
-├── src/
-│   ├── generate_image.py
-│   ├── validate_image.py
-│   ├── learner.py
-│   └── run_daily.py
-├── assets/
-│   ├── input/.gitkeep
-│   └── published/.gitkeep
-├── logs/.gitkeep
-└── .github/workflows/daily-draft.yml
+POST_MODE=draft
 ```
 
-## Uso local
+Para prueba local real:
 
 ```bash
 python -m venv .venv
 pip install -r requirements.txt
 cp config.example.json config.json
+```
+
+Crear un archivo `.env` local, no versionado:
+
+```bash
+POST_MODE=live
+POST_TEXT=
+X_API_KEY=...
+X_API_SECRET=...
+X_ACCESS_TOKEN=...
+X_ACCESS_TOKEN_SECRET=...
+```
+
+Luego ejecutar:
+
+```bash
 python src/run_daily.py
 ```
 
-## Primer criterio de éxito
+## Flujo del MVP
 
-Que el sistema pueda ejecutarse todos los días y dejar un resultado revisable sin intervención manual en cada paso.
+1. busca una imagen en `src/assets/input/`;
+2. si no encuentra, genera un placeholder local;
+3. valida formato, tamaño, dimensiones y duplicado básico;
+4. si `POST_MODE=draft`, registra simulación;
+5. si `POST_MODE=live`, publica usando OAuth 1.0a;
+6. registra la ejecución en `logs/run_log.json`;
+7. genera una observación del learner en `logs/learner_suggestions.json`.
+
+## Criterio de éxito del Hello World
+
+El log debe contener:
+
+```json
+{
+  "publish_result": {
+    "ok": true,
+    "post_id": "...",
+    "post_url": "..."
+  }
+}
+```
+
+## Seguridad
+
+No subir `.env`, `config.json`, tokens ni secrets. El repositorio ignora esos archivos.
